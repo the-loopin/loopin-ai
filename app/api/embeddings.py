@@ -1,20 +1,26 @@
-from typing import Literal
+import logging
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.services.embedding_service import EmbeddingService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+MAX_TEXT_LENGTH = 4096
+MAX_BATCH_SIZE = 128
+EmbeddingText = Annotated[str, Field(min_length=1, max_length=MAX_TEXT_LENGTH)]
 
 
 class TextEmbeddingRequest(BaseModel):
-    text: str = Field(..., min_length=1)
+    text: EmbeddingText
     input_type: Literal["query", "passage"] = "passage"
 
 
 class BatchEmbeddingRequest(BaseModel):
-    texts: list[str] = Field(..., min_length=1)
+    texts: list[EmbeddingText] = Field(..., min_length=1, max_length=MAX_BATCH_SIZE)
     input_type: Literal["query", "passage"] = "passage"
 
 
@@ -36,7 +42,15 @@ def _service(request: Request) -> EmbeddingService:
 
 @router.post("/text", response_model=EmbeddingResponse)
 def embed_text(payload: TextEmbeddingRequest, request: Request) -> EmbeddingResponse:
-    result = _service(request).embed([payload.text], input_type=payload.input_type)
+    logger.info(
+        "Embedding text request",
+        extra={"input_type": payload.input_type, "items": 1},
+    )
+    try:
+        result = _service(request).embed([payload.text], input_type=payload.input_type)
+    except Exception as exc:
+        logger.exception("Embedding text request failed")
+        raise HTTPException(status_code=500, detail="Embedding inference failed.") from exc
     return EmbeddingResponse(
         model=result.model,
         dimensions=result.dimensions,
@@ -46,7 +60,15 @@ def embed_text(payload: TextEmbeddingRequest, request: Request) -> EmbeddingResp
 
 @router.post("/batch", response_model=BatchEmbeddingResponse)
 def embed_batch(payload: BatchEmbeddingRequest, request: Request) -> BatchEmbeddingResponse:
-    result = _service(request).embed(payload.texts, input_type=payload.input_type)
+    logger.info(
+        "Embedding batch request",
+        extra={"input_type": payload.input_type, "items": len(payload.texts)},
+    )
+    try:
+        result = _service(request).embed(payload.texts, input_type=payload.input_type)
+    except Exception as exc:
+        logger.exception("Embedding batch request failed")
+        raise HTTPException(status_code=500, detail="Embedding inference failed.") from exc
     return BatchEmbeddingResponse(
         model=result.model,
         dimensions=result.dimensions,

@@ -1,21 +1,30 @@
-from fastapi import APIRouter, Request
+import logging
+
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.services.reranker_service import RerankerService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+MAX_TEXT_LENGTH = 4096
+MAX_CANDIDATES = 100
+MAX_TOP_K = 50
 
 
 class RerankCandidate(BaseModel):
     id: str
-    text: str = Field(..., min_length=1)
+    text: str = Field(..., min_length=1, max_length=MAX_TEXT_LENGTH)
     metadata: dict | None = None
 
 
 class RerankRequest(BaseModel):
-    query: str = Field(..., min_length=1)
-    candidates: list[RerankCandidate] = Field(..., min_length=1)
-    top_k: int | None = Field(default=None, ge=1)
+    query: str = Field(..., min_length=1, max_length=MAX_TEXT_LENGTH)
+    candidates: list[RerankCandidate] = Field(
+        ..., min_length=1, max_length=MAX_CANDIDATES
+    )
+    top_k: int | None = Field(default=None, ge=1, le=MAX_TOP_K)
 
 
 class RankedCandidate(BaseModel):
@@ -36,9 +45,17 @@ def _service(request: Request) -> RerankerService:
 
 @router.post("/rerank", response_model=RerankResponse)
 def rerank(payload: RerankRequest, request: Request) -> RerankResponse:
-    result = _service(request).rerank(
-        query=payload.query,
-        candidates=[candidate.model_dump() for candidate in payload.candidates],
-        top_k=payload.top_k,
+    logger.info(
+        "Rerank request",
+        extra={"candidates": len(payload.candidates), "top_k": payload.top_k},
     )
+    try:
+        result = _service(request).rerank(
+            query=payload.query,
+            candidates=[candidate.model_dump() for candidate in payload.candidates],
+            top_k=payload.top_k,
+        )
+    except Exception as exc:
+        logger.exception("Rerank request failed")
+        raise HTTPException(status_code=500, detail="Rerank inference failed.") from exc
     return RerankResponse(model=result.model, results=result.results)

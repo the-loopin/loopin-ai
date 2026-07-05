@@ -53,3 +53,29 @@ def test_reranker_service_returns_highest_score_first():
     )
 
     assert [item["id"] for item in result.results] == ["event_2", "event_1"]
+
+
+def test_reranker_service_respects_explicit_top_k():
+    result = RerankerService(FakeRegistry()).rerank(
+        query="music",
+        candidates=[
+            {"id": "event_1", "text": "coding meetup"},
+            {"id": "event_2", "text": "jazz night"},
+        ],
+        top_k=1,
+    )
+
+    assert [item["id"] for item in result.results] == ["event_2"]
+
+
+def test_reranker_service_does_not_exceed_candidate_count():
+    result = RerankerService(FakeRegistry()).rerank(
+        query="music",
+        candidates=[
+            {"id": "event_1", "text": "coding meetup"},
+            {"id": "event_2", "text": "jazz night"},
+        ],
+        top_k=10,
+    )
+
+    assert len(result.results) == 2

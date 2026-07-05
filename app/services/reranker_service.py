@@ -23,7 +23,7 @@ class RerankerService:
         top_k: int | None = None,
     ) -> RerankResult:
         config = self.registry.reranker_config
-        limit = top_k or int(config.get("return_top_k", 10))
+        limit = min(top_k or int(config.get("return_top_k", 10)), len(candidates))
         pairs = [(query, candidate["text"]) for candidate in candidates]
         scores = self.registry.reranker_model.predict(pairs)
 

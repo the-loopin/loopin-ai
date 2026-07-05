@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI, Request
 
@@ -6,11 +7,16 @@ from app.api.embeddings import router as embeddings_router
 from app.api.rerank import router as rerank_router
 from app.models.registry import ModelRegistry
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("Loading model registry from config/models.yaml")
     registry = ModelRegistry.from_yaml("config/models.yaml")
+    logger.info("Loading embedding and reranker models", extra=registry.readiness())
     registry.load_all()
+    logger.info("Models loaded", extra=registry.readiness())
     app.state.models = registry
     yield
 
