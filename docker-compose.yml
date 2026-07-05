@@ -1,0 +1,12 @@
+services:
+  loopin-ai:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      HF_HOME: /models/huggingface
+    volumes:
+      - loopin-ai-model-cache:/models/huggingface
+
+volumes:
+  loopin-ai-model-cache:
