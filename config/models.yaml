@@ -1,0 +1,18 @@
+embeddings:
+  active: multilingual_e5_small
+  models:
+    multilingual_e5_small:
+      model_id: intfloat/multilingual-e5-small
+      dimensions: 384
+      normalize: true
+
+reranker:
+  active: bge_reranker_v2_m3
+  models:
+    bge_reranker_v2_m3:
+      model_id: BAAI/bge-reranker-v2-m3
+      rerank_top_k: 50
+      return_top_k: 10
+
+llm:
+  enabled: false
