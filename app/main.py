@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("Loading model registry from config/models.yaml")
     registry = ModelRegistry.from_yaml("config/models.yaml")
-    logger.info("Loading embedding and reranker models", extra=registry.readiness())
-    registry.load_all()
-    logger.info("Models loaded", extra=registry.readiness())
+    logger.info("Loading enabled models", extra={"models": registry.readiness()})
+    registry.load_enabled()
+    logger.info("Model loading complete", extra={"models": registry.readiness()})
     app.state.models = registry
     yield
 
@@ -38,5 +38,5 @@ def health() -> dict[str, str]:
 
 
 @app.get("/ready")
-def ready(request: Request) -> dict[str, str]:
+def ready(request: Request) -> dict:
     return {"status": "ready", **request.app.state.models.readiness()}
