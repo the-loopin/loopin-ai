@@ -172,7 +172,7 @@ def test_disabled_reranker_with_incomplete_config_does_not_block_embeddings(monk
     registry.load_enabled()
 
     assert registry.embedding_model is embedding_model
-    assert registry.all_enabled_models_available() is True
+    assert registry.readiness_status() == "ready"
     assert registry.readiness()["reranker"] == {
         "enabled": False,
         "loaded": False,
