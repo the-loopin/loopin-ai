@@ -42,11 +42,14 @@ class FakeRegistry:
     def unavailable_reason(self, name):
         return f"{name} unavailable"
 
-    def all_enabled_models_available(self):
-        return all(
-            not state["enabled"] or state["loaded"]
-            for state in self.model_states.values()
-        )
+    def readiness_status(self):
+        if not self.is_available("embeddings"):
+            return "not_ready"
+        if self.model_states["reranker"]["enabled"] and not self.is_available(
+            "reranker"
+        ):
+            return "degraded"
+        return "ready"
 
 
 @pytest.fixture(autouse=True)
@@ -253,3 +256,15 @@ def test_ready_returns_503_when_enabled_model_failed_to_load():
     assert response.status_code == 503
     assert response.json()["status"] == "not_ready"
     assert response.json()["embeddings"]["loaded"] is False
+
+
+def test_ready_returns_degraded_when_enabled_reranker_failed_to_load():
+    FakeRegistry.model_states["reranker"].update({"enabled": True, "loaded": False})
+
+    with TestClient(app_main.app) as client:
+        response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "degraded"
+    assert response.json()["embeddings"]["loaded"] is True
+    assert response.json()["reranker"]["loaded"] is False
