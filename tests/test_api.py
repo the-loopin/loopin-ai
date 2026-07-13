@@ -9,14 +9,31 @@ class FakeRegistry:
     def from_yaml(cls, path):
         return cls()
 
-    def load_all(self):
+    def load_enabled(self):
         return None
 
     def readiness(self):
         return {
-            "embedding_model": "fake-embedding",
-            "reranker_model": "fake-reranker",
+            "embeddings": {
+                "enabled": True,
+                "loaded": True,
+                "model_id": "fake-embedding",
+                "revision": None,
+                "dimensions": 384,
+            },
+            "reranker": {
+                "enabled": False,
+                "loaded": False,
+                "model_id": "fake-reranker",
+                "revision": None,
+            },
         }
+
+    def is_available(self, name):
+        return name == "embeddings"
+
+    def unavailable_reason(self, name):
+        return f"{name} unavailable"
 
 
 @pytest.fixture(autouse=True)
@@ -34,8 +51,19 @@ def test_health_and_ready_with_mocked_registry():
     assert ready_response.status_code == 200
     assert ready_response.json() == {
         "status": "ready",
-        "embedding_model": "fake-embedding",
-        "reranker_model": "fake-reranker",
+        "embeddings": {
+            "enabled": True,
+            "loaded": True,
+            "model_id": "fake-embedding",
+            "revision": None,
+            "dimensions": 384,
+        },
+        "reranker": {
+            "enabled": False,
+            "loaded": False,
+            "model_id": "fake-reranker",
+            "revision": None,
+        },
     }
 
 
@@ -87,3 +115,17 @@ def test_rerank_rejects_top_k_over_limit():
         )
 
     assert response.status_code == 422
+
+
+def test_rerank_returns_503_when_model_is_disabled():
+    with TestClient(app_main.app) as client:
+        response = client.post(
+            "/v1/rerank",
+            json={
+                "query": "music",
+                "candidates": [{"id": "event_1", "text": "jazz"}],
+            },
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "reranker unavailable"}
