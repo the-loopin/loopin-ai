@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app import main as app_main
 from app.api import embeddings as embeddings_api
+from app.api import rerank as rerank_api
 from app.runtime import InferenceLimiter, InferenceQueueFull, InferenceRuntimeSettings
 
 
@@ -116,6 +117,53 @@ def test_embedding_queue_returns_429_before_starting_more_inference(monkeypatch)
         }
         assert overloaded.headers["retry-after"] == "1"
         assert 'loopin_inference_rejected_total{operation="embeddings"} 1' in client.get(
+            "/metrics"
+        ).text
+
+
+def test_reranker_queue_returns_429_before_starting_more_inference(monkeypatch):
+    monkeypatch.setenv("RERANKER_MAX_CONCURRENCY", "1")
+    monkeypatch.setenv("INFERENCE_QUEUE_CAPACITY", "0")
+    started = threading.Event()
+    release = threading.Event()
+
+    class AvailableRerankerRegistry(FakeRegistry):
+        def is_available(self, name):
+            return name in {"embeddings", "reranker"}
+
+        def readiness(self):
+            state = super().readiness()
+            state["reranker"].update({"enabled": True, "loaded": True})
+            return state
+
+    class BlockingRerankerService:
+        def rerank(self, query, candidates, top_k):
+            started.set()
+            assert release.wait(timeout=2)
+            return type("Result", (), {"model": "fake-reranker", "results": []})()
+
+    monkeypatch.setattr(app_main, "ModelRegistry", AvailableRerankerRegistry)
+    monkeypatch.setattr(rerank_api, "_service", lambda request: BlockingRerankerService())
+
+    with TestClient(app_main.app) as client:
+        payload = {
+            "query": "live jazz",
+            "candidates": [{"id": "event_1", "text": "Rooftop jazz night"}],
+        }
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            first = executor.submit(client.post, "/v1/rerank", json=payload)
+            assert started.wait(timeout=2)
+            overloaded = client.post("/v1/rerank", json=payload)
+            release.set()
+            completed = first.result(timeout=2)
+
+        assert completed.status_code == 200
+        assert overloaded.status_code == 429
+        assert overloaded.json() == {
+            "detail": "Reranker inference queue is full. Retry later."
+        }
+        assert overloaded.headers["retry-after"] == "1"
+        assert 'loopin_inference_rejected_total{operation="reranker"} 1' in client.get(
             "/metrics"
         ).text
 
