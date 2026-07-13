@@ -1,9 +1,12 @@
 import copy
+import logging
 import os
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 class ModelConfigError(ValueError):
@@ -56,24 +59,32 @@ class ModelRegistry:
         if not isinstance(config, dict):
             raise ModelConfigError("Model config must be a YAML mapping.")
 
-        embedding_config = cls._active_model_config(config, "embeddings")
-        reranker_config = cls._active_model_config(config, "reranker")
+        for name in ("embeddings", "reranker"):
+            cls._section_config(config, name)
+            if not config[name]["enabled"]:
+                continue
 
-        cls._require_non_empty_string(embedding_config, "model_id", "embeddings")
-        cls._require_positive_int(embedding_config, "dimensions", "embeddings")
-        cls._require_non_empty_string(reranker_config, "model_id", "reranker")
-        cls._require_positive_int(reranker_config, "return_top_k", "reranker")
-
-        if "rerank_top_k" in reranker_config:
-            cls._require_positive_int(reranker_config, "rerank_top_k", "reranker")
+            model_config = cls._active_model_config(config, name)
+            cls._require_non_empty_string(model_config, "model_id", name)
+            if name == "embeddings":
+                cls._require_positive_int(model_config, "dimensions", name)
+            else:
+                cls._require_positive_int(model_config, "return_top_k", name)
+                if "rerank_top_k" in model_config:
+                    cls._require_positive_int(model_config, "rerank_top_k", name)
 
     @staticmethod
-    def _active_model_config(config: dict[str, Any], section_name: str) -> dict[str, Any]:
+    def _section_config(config: dict[str, Any], section_name: str) -> dict[str, Any]:
         section = config.get(section_name)
         if not isinstance(section, dict):
             raise ModelConfigError(f"Missing or invalid '{section_name}' config section.")
         if type(section.get("enabled")) is not bool:
             raise ModelConfigError(f"Missing or invalid 'enabled' for '{section_name}'.")
+        return section
+
+    @staticmethod
+    def _active_model_config(config: dict[str, Any], section_name: str) -> dict[str, Any]:
+        section = ModelRegistry._section_config(config, section_name)
 
         active = section.get("active")
         models = section.get("models")
@@ -112,13 +123,11 @@ class ModelRegistry:
 
     @property
     def embedding_config(self) -> dict[str, Any]:
-        section = self._section("embeddings")
-        return section["models"][section["active"]]
+        return self._active_model_config(self.config, "embeddings")
 
     @property
     def reranker_config(self) -> dict[str, Any]:
-        section = self._section("reranker")
-        return section["models"][section["active"]]
+        return self._active_model_config(self.config, "reranker")
 
     def _load_embedding_model(self):
         from sentence_transformers import SentenceTransformer
@@ -149,6 +158,10 @@ class ModelRegistry:
             except Exception as exc:
                 self._models.pop(name, None)
                 self._load_errors[name] = str(exc) or exc.__class__.__name__
+                logger.exception(
+                    "Model failed to load",
+                    extra={"model_type": name, "model_id": self._model_id(name)},
+                )
 
     def is_available(self, name: str) -> bool:
         return self.enabled(name) and name in self._models
@@ -157,6 +170,12 @@ class ModelRegistry:
         if not self.enabled(name):
             return f"{name.capitalize()} are disabled."
         return f"{name.capitalize()} are unavailable because the model failed to load."
+
+    def all_enabled_models_available(self) -> bool:
+        return all(
+            not self.enabled(name) or self.is_available(name)
+            for name in ("embeddings", "reranker")
+        )
 
     @property
     def embedding_model(self):
@@ -168,19 +187,34 @@ class ModelRegistry:
 
     def readiness(self) -> dict[str, dict[str, Any]]:
         return {
-            "embeddings": self._model_state("embeddings", self.embedding_config),
-            "reranker": self._model_state("reranker", self.reranker_config),
+            "embeddings": self._model_state("embeddings"),
+            "reranker": self._model_state("reranker"),
         }
 
-    def _model_state(self, name: str, config: dict[str, Any]) -> dict[str, Any]:
+    def _model_state(self, name: str) -> dict[str, Any]:
+        config = self._configured_model_if_available(name)
         state: dict[str, Any] = {
             "enabled": self.enabled(name),
             "loaded": name in self._models,
-            "model_id": config["model_id"],
-            "revision": config.get("revision"),
+            "model_id": config.get("model_id") if config else None,
+            "revision": config.get("revision") if config else None,
         }
-        if "dimensions" in config:
+        if config and "dimensions" in config:
             state["dimensions"] = config["dimensions"]
         if name in self._load_errors:
-            state["error"] = self._load_errors[name]
+            state["error"] = "load_failed"
         return state
+
+    def _configured_model_if_available(self, name: str) -> dict[str, Any] | None:
+        section = self._section(name)
+        active = section.get("active")
+        models = section.get("models")
+        if not isinstance(active, str) or not isinstance(models, dict):
+            return None
+        model_config = models.get(active)
+        return model_config if isinstance(model_config, dict) else None
+
+    def _model_id(self, name: str) -> str | None:
+        config = self._configured_model_if_available(name)
+        model_id = config.get("model_id") if config else None
+        return model_id if isinstance(model_id, str) else None
