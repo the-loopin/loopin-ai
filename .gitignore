@@ -1,6 +1,8 @@
 __pycache__/
 .pytest_cache/
 .venv/
+.test-venv/
+.real-venv/
 venv/
 *.pyc
 .env
@@ -10,3 +12,5 @@ venv/
 *.safetensors
 *.pt
 *.onnx
+/benchmark-results/
+!/benchmark-results/.gitkeep
