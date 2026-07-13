@@ -1,6 +1,15 @@
 name: Real model contracts and benchmark
 
 on:
+  pull_request:
+    paths:
+      - "app/**"
+      - "benchmarks/**"
+      - "config/models.yaml"
+      - "requirements.txt"
+      - "tests/contract/**"
+      - "tests/fixtures/**"
+      - ".github/workflows/real-model-contracts.yml"
   workflow_dispatch:
     inputs:
       run_reranker:
