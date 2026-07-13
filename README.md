@@ -115,6 +115,51 @@ The small queue intentionally rejected excess concurrent work, demonstrating the
 
 ## Endpoints
 
+## Internal deployment and authentication
+
+This is an internal-only service. Deploy it on a private network (or behind an authenticated
+service mesh/reverse proxy) and do not expose port 8000 directly to the public internet. The
+Compose file intentionally requires `LOOPIN_SERVICE_TOKEN`, which should come from the runtime
+secret manager or an uncommitted `.env` file:
+
+```bash
+LOOPIN_SERVICE_TOKEN='replace-with-a-long-random-secret'
+LOOPIN_ENV=production
+```
+
+Every inference request and `/metrics` must send this credential using either
+`Authorization: Bearer <token>` or `X-Loopin-Service-Token: <token>`. For example, an API client
+reads its credential from its environment rather than source code:
+
+```python
+import os
+import httpx
+
+headers = {"Authorization": f"Bearer {os.environ['LOOPIN_SERVICE_TOKEN']}"}
+response = httpx.post("http://loopin-ai.internal/v1/embeddings/text", headers=headers,
+                      json={"text": "recommendation text", "input_type": "passage"})
+response.raise_for_status()
+```
+
+`/health` is deliberately process-only and remains `200` while a model dependency is unavailable.
+`/ready` returns `503` unless every enabled model has loaded. This makes `/health` appropriate for
+process liveness and `/ready` appropriate for traffic admission. In production (`LOOPIN_ENV=production`),
+OpenAPI, Swagger UI, and ReDoc are disabled; keep development documentation available only in a
+trusted local environment.
+
+Each response includes `X-Request-ID`. Supply that header from the caller to propagate an existing
+correlation ID; otherwise the service creates one. Logs record only request metadata, IDs, counts,
+durations, and error types—never submitted recommendation, query, or candidate text.
+
+`/metrics` is authenticated and emits Prometheus metrics for HTTP response status, inference
+request/outcome, queue and execution latency, active inference, overload rejection, model load
+status/duration, embedding batch volume, and reranker candidate volume. Configure Prometheus to
+scrape it over the same private network with the service token.
+
+The provided Compose service uses `expose` instead of a host `ports` mapping. Attach the calling
+service to the Compose network; use an explicit, access-controlled local override only when
+debugging from a workstation.
+
 ### `POST /v1/embeddings/text`
 
 ```json

@@ -1,6 +1,7 @@
 import copy
 import logging
 import os
+from time import perf_counter
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ class ModelRegistry:
         self._validate(self.config)
         self._models: dict[str, Any] = {}
         self._load_errors: dict[str, str] = {}
+        self._load_durations: dict[str, float] = {}
 
     @classmethod
     def from_yaml(cls, path: str) -> "ModelRegistry":
@@ -152,6 +154,7 @@ class ModelRegistry:
         ):
             if not self.enabled(name):
                 continue
+            started_at = perf_counter()
             try:
                 self._models[name] = loader()
                 self._load_errors.pop(name, None)
@@ -162,6 +165,8 @@ class ModelRegistry:
                     "Model failed to load",
                     extra={"model_type": name, "model_id": self._model_id(name)},
                 )
+            finally:
+                self._load_durations[name] = perf_counter() - started_at
 
     def is_available(self, name: str) -> bool:
         return self.enabled(name) and name in self._models
@@ -172,11 +177,12 @@ class ModelRegistry:
         return f"{name.capitalize()} are unavailable because the model failed to load."
 
     def readiness_status(self) -> str:
-        if not self.is_available("embeddings"):
-            return "not_ready"
-        if self.enabled("reranker") and not self.is_available("reranker"):
-            return "degraded"
-        return "ready"
+        return "ready" if all(
+            self.is_available(name) for name in ("embeddings", "reranker") if self.enabled(name)
+        ) else "not_ready"
+
+    def load_duration(self, name: str) -> float:
+        return self._load_durations.get(name, 0.0)
 
     @property
     def embedding_model(self):

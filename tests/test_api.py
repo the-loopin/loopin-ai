@@ -4,7 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main as app_main
+from app.api import embeddings as embeddings_api
 from app.api import rerank as rerank_api
+from app.security import require_service_token
 from app.services.reranker_service import RerankResult
 
 
@@ -43,17 +45,21 @@ class FakeRegistry:
         return f"{name} unavailable"
 
     def readiness_status(self):
-        if not self.is_available("embeddings"):
-            return "not_ready"
-        if self.model_states["reranker"]["enabled"] and not self.is_available(
-            "reranker"
-        ):
-            return "degraded"
-        return "ready"
+        return (
+            "ready"
+            if all(
+                self.is_available(name)
+                for name, state in self.model_states.items()
+                if state["enabled"]
+            )
+            else "not_ready"
+        )
 
 
 @pytest.fixture(autouse=True)
 def fake_model_registry(monkeypatch):
+    monkeypatch.setenv("LOOPIN_SERVICE_TOKEN", "test-service-token")
+    app_main.app.dependency_overrides[require_service_token] = lambda: None
     monkeypatch.setattr(
         FakeRegistry,
         "model_states",
@@ -74,6 +80,8 @@ def fake_model_registry(monkeypatch):
         },
     )
     monkeypatch.setattr(app_main, "ModelRegistry", FakeRegistry)
+    yield
+    app_main.app.dependency_overrides.clear()
 
 
 def test_health_and_ready_with_mocked_registry():
@@ -258,13 +266,81 @@ def test_ready_returns_503_when_enabled_model_failed_to_load():
     assert response.json()["embeddings"]["loaded"] is False
 
 
-def test_ready_returns_degraded_when_enabled_reranker_failed_to_load():
+def test_ready_returns_503_when_enabled_reranker_failed_to_load():
     FakeRegistry.model_states["reranker"].update({"enabled": True, "loaded": False})
 
     with TestClient(app_main.app) as client:
         response = client.get("/ready")
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "degraded"
+    assert response.status_code == 503
+    assert response.json()["status"] == "not_ready"
     assert response.json()["embeddings"]["loaded"] is True
     assert response.json()["reranker"]["loaded"] is False
+
+
+def test_inference_requires_service_authentication(monkeypatch):
+    class FakeEmbeddingService:
+        def embed(self, texts, input_type):
+            return type(
+                "Result",
+                (),
+                {"model": "fake-embedding", "dimensions": 1, "embeddings": [[1.0]]},
+            )()
+
+    monkeypatch.setattr(
+        embeddings_api, "_service", lambda request: FakeEmbeddingService()
+    )
+    app_main.app.dependency_overrides.clear()
+    with TestClient(app_main.app) as client:
+        unauthorized = client.post("/v1/embeddings/text", json={"text": "music"})
+        authorized = client.post(
+            "/v1/embeddings/text",
+            json={"text": "music"},
+            headers={"Authorization": "Bearer test-service-token"},
+        )
+
+    assert unauthorized.status_code == 401
+    assert authorized.status_code == 200
+
+
+def test_request_id_is_returned_and_propagated():
+    with TestClient(app_main.app) as client:
+        response = client.get("/health", headers={"X-Request-ID": "caller-123"})
+
+    assert response.headers["x-request-id"] == "caller-123"
+
+
+def test_unmatched_requests_use_a_bounded_metrics_route_label():
+    with TestClient(app_main.app) as client:
+        response = client.get("/unrecognized/client-supplied-value")
+        metrics = client.get("/metrics").text
+
+    assert response.status_code == 404
+    assert 'loopin_http_responses_total{method="GET",route="unmatched",status="404"} 1' in metrics
+    assert "client-supplied-value" not in metrics
+
+
+def test_unhandled_500_has_request_id_metric_and_error_log(caplog):
+    def fail_unhandled_request():
+        raise RuntimeError("unexpected failure")
+
+    app_main.app.add_api_route("/test-unhandled-500", fail_unhandled_request)
+    route = app_main.app.router.routes[-1]
+    try:
+        with TestClient(app_main.app, raise_server_exceptions=False) as client:
+            response = client.get(
+                "/test-unhandled-500", headers={"X-Request-ID": "failure-123"}
+            )
+            metrics = client.get("/metrics").text
+    finally:
+        app_main.app.router.routes.remove(route)
+
+    assert response.status_code == 500
+    assert response.headers["x-request-id"] == "failure-123"
+    assert (
+        'loopin_http_responses_total{method="GET",route="/test-unhandled-500",status="500"} 1'
+        in metrics
+    )
+    error = next(record for record in caplog.records if record.message == "HTTP request failed")
+    assert error.request_id == "failure-123"
+    assert error.error_type == "RuntimeError"

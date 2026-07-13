@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import perf_counter
@@ -45,6 +46,9 @@ def main() -> None:
     parser.add_argument("--requests", type=int, default=40)
     parser.add_argument("--concurrency", type=int, default=8)
     args = parser.parse_args()
+    service_token = os.environ.get("LOOPIN_SERVICE_TOKEN")
+    if not service_token:
+        parser.error("LOOPIN_SERVICE_TOKEN must be set for authenticated requests.")
 
     operations = (
         ["embeddings", "reranker"] * ((args.requests + 1) // 2)
@@ -52,7 +56,10 @@ def main() -> None:
         else [args.operation] * args.requests
     )[: args.requests]
     started_at = perf_counter()
-    with httpx.Client(timeout=30.0) as client, ThreadPoolExecutor(
+    with httpx.Client(
+        timeout=30.0,
+        headers={"Authorization": f"Bearer {service_token}"},
+    ) as client, ThreadPoolExecutor(
         max_workers=args.concurrency
     ) as executor:
         futures = [

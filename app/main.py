@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
 import logging
+import os
+from time import perf_counter
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
 from app.api.embeddings import router as embeddings_router
@@ -9,6 +11,13 @@ from app.api.rerank import router as rerank_router
 from app.models.registry import ModelRegistry
 from app.metrics import InferenceMetrics
 from app.runtime import InferenceLimiter, InferenceRuntimeSettings
+from app.security import (
+    SecuritySettings,
+    inbound_request_id,
+    require_service_token,
+    reset_request_id,
+    set_request_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +35,7 @@ async def lifespan(app: FastAPI):
         ),
     }
     app.state.inference_metrics = InferenceMetrics()
+    app.state.security = SecuritySettings.from_environment()
     logger.info(
         "Configured bounded CPU inference runtime",
         extra={
@@ -41,20 +51,76 @@ async def lifespan(app: FastAPI):
     registry = ModelRegistry.from_yaml("config/models.yaml")
     logger.info("Loading enabled models", extra={"models": registry.readiness()})
     registry.load_enabled()
+    for model, state in registry.readiness().items():
+        if state["enabled"]:
+            app.state.inference_metrics.record_model_load(
+                model,
+                state["loaded"],
+                getattr(registry, "load_duration", lambda _: 0.0)(model),
+            )
     logger.info("Model loading complete", extra={"models": registry.readiness()})
     app.state.models = registry
     yield
 
 
+_production = os.getenv("LOOPIN_ENV", "development").strip().lower() == "production"
 app = FastAPI(
     title="Loopin AI",
     description="Embedding and reranking microservice for Loopin recommendations.",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url=None if _production else "/docs",
+    redoc_url=None if _production else "/redoc",
+    openapi_url=None if _production else "/openapi.json",
 )
 
 app.include_router(embeddings_router, prefix="/v1/embeddings", tags=["embeddings"])
 app.include_router(rerank_router, prefix="/v1", tags=["rerank"])
+
+
+def _route_template(request: Request) -> str:
+    """Return a stable route template; never use caller-controlled path values."""
+    route = request.scope.get("route")
+    template = getattr(route, "path_format", None) or getattr(route, "path", None)
+    return template if isinstance(template, str) else "unmatched"
+
+
+@app.middleware("http")
+async def request_correlation(request: Request, call_next):
+    correlation_id = inbound_request_id(request.headers.get("x-request-id"))
+    token = set_request_id(correlation_id)
+    started_at = perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        response = JSONResponse(status_code=500, content={"detail": "Internal server error."})
+        status = "failed"
+        error_type = exc.__class__.__name__
+    else:
+        status = "completed"
+        error_type = None
+    finally:
+        route = _route_template(request)
+        duration_seconds = perf_counter() - started_at
+        if route != "/metrics":
+            request.app.state.inference_metrics.record_response(
+                request.method, route, response.status_code
+            )
+        logger.log(
+            logging.ERROR if error_type else logging.INFO,
+            f"HTTP request {status}",
+            extra={
+                "request_id": correlation_id,
+                "method": request.method,
+                "route": route,
+                "status_code": response.status_code,
+                "duration_seconds": duration_seconds,
+                "error_type": error_type,
+            },
+        )
+        reset_request_id(token)
+    response.headers["X-Request-ID"] = correlation_id
+    return response
 
 
 @app.get("/health")
@@ -74,7 +140,7 @@ def ready(request: Request) -> dict | JSONResponse:
     return JSONResponse(status_code=503, content=body)
 
 
-@app.get("/metrics", include_in_schema=False)
+@app.get("/metrics", include_in_schema=False, dependencies=[Depends(require_service_token)])
 def metrics(request: Request) -> Response:
     return Response(
         content=request.app.state.inference_metrics.render_prometheus(),

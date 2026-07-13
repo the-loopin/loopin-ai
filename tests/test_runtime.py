@@ -9,6 +9,7 @@ from app import main as app_main
 from app.api import embeddings as embeddings_api
 from app.api import rerank as rerank_api
 from app.runtime import InferenceLimiter, InferenceQueueFull, InferenceRuntimeSettings
+from app.security import require_service_token
 
 
 class FakeRegistry:
@@ -48,7 +49,11 @@ class FakeRegistry:
 
 @pytest.fixture(autouse=True)
 def fake_model_registry(monkeypatch):
+    monkeypatch.setenv("LOOPIN_SERVICE_TOKEN", "test-service-token")
+    app_main.app.dependency_overrides[require_service_token] = lambda: None
     monkeypatch.setattr(app_main, "ModelRegistry", FakeRegistry)
+    yield
+    app_main.app.dependency_overrides.clear()
 
 
 def test_inference_limiter_bounds_active_and_queued_requests():
