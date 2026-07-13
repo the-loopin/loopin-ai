@@ -17,7 +17,35 @@ Model binaries are not committed to this repository. The service loads the confi
 
 The copied bucket links are kept in docs as provenance only. Runtime loading uses model repos, not bucket ids.
 
-Configuration lives in `config/models.yaml`.
+Configuration lives in `config/models.yaml`. Embeddings are enabled by default and the
+reranker is disabled by default, so it consumes no model memory in the current deployment.
+Each model section has an `enabled` flag and an `active` model name:
+
+```yaml
+embeddings:
+  enabled: true
+  active: multilingual_e5_small
+
+reranker:
+  enabled: false
+  active: bge_reranker_v2_m3
+```
+
+`/ready` reports each model's `enabled`, `loaded`, `model_id`, `revision`, and embedding
+`dimensions`.
+
+To enable reranking in a later deployment without a code change, either set
+`reranker.enabled: true` in the configuration or supply environment overrides:
+
+```bash
+LOOPIN_RERANKER_ENABLED=true
+# Optional model selection overrides:
+LOOPIN_EMBEDDINGS_ACTIVE=multilingual_e5_small
+LOOPIN_RERANKER_ACTIVE=bge_reranker_v2_m3
+```
+
+When reranking is disabled or its model cannot load, `POST /v1/rerank` returns `503 Service
+Unavailable`. An unavailable embedding model similarly returns 503 from embedding endpoints.
 
 ## Endpoints
 
