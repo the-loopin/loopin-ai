@@ -249,12 +249,13 @@ python benchmarks/run_recommendation_benchmark.py --include-reranker
 
 The runner writes a timestamped JSON record under `benchmark-results/` and refreshes
 `docs/benchmarks/latest.md`. Outputs include only IDs and aggregates, never raw query, event, or
-candidate text. `Recall@10` is the share of queries with a relevant item among the first ten;
-MRR is the mean reciprocal rank of the first relevant result. It records warm-up-excluded CPU
-latency and observed process RSS (MiB), model identity/revision details, and a cautious reranker
-recommendation. Expect several hundred MiB of RAM for the embedding model and substantially more
-when the reranker is enabled; exact requirements and CPU latency depend on the host. Heavy tests
-are excluded from the default suite to prevent model downloads and routine developer/CI delays.
+candidate text. `Recall@10` is the fraction of every query's relevant candidates retrieved among
+the first ten; MRR is the mean reciprocal rank of the first relevant result. It records
+warm-up-excluded CPU latency and a background-sampled process RSS peak (MiB), model
+identity/revision details, and a thresholded reranker recommendation. Expect several hundred MiB
+of RAM for the embedding model and substantially more when the reranker is enabled; exact
+requirements and CPU latency depend on the host. Heavy tests are excluded from the default suite
+to prevent model downloads and routine developer/CI delays.
 
 ## Runtime flow
 
