@@ -12,5 +12,6 @@ venv/
 *.safetensors
 *.pt
 *.onnx
-/benchmark-results/
+/benchmark-results/*
 !/benchmark-results/.gitkeep
+!/benchmark-results/latest.json
