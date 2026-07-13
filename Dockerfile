@@ -2,6 +2,9 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV OMP_NUM_THREADS=2
+ENV MKL_NUM_THREADS=2
+ENV TOKENIZERS_PARALLELISM=false
 
 WORKDIR /app
 
@@ -17,4 +20,4 @@ COPY config ./config
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
