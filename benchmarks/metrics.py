@@ -1,8 +1,8 @@
 """Ranking metrics used by the recommendation benchmark.
 
-Recall@k is the fraction of evaluated queries with at least one relevant candidate in their
-first k results. MRR is the mean reciprocal rank: for each query it contributes 1/rank of its
-first relevant candidate, or zero when no relevant candidate is retrieved.
+Recall@k is the fraction of all relevant candidates retrieved in the first k results. MRR is the
+mean reciprocal rank: for each query it contributes 1/rank of its first relevant candidate, or
+zero when no relevant candidate is retrieved.
 """
 
 from __future__ import annotations
@@ -17,8 +17,10 @@ def rank_by_score(items: Iterable[tuple[str, float]]) -> list[str]:
 
 
 def query_metrics(ranked_ids: list[str], relevant_ids: set[str], k: int = 10) -> dict[str, float]:
+    if not relevant_ids:
+        raise ValueError("relevant_ids must not be empty.")
     top_k = ranked_ids[:k]
-    recall = float(bool(set(top_k) & relevant_ids))
+    recall = len(set(top_k) & relevant_ids) / len(relevant_ids)
     reciprocal_rank = 0.0
     for index, candidate_id in enumerate(ranked_ids, start=1):
         if candidate_id in relevant_ids:
