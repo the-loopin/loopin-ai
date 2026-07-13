@@ -25,9 +25,9 @@ class InferenceMetrics:
         self._reranker_candidate_counts: dict[str, int] = defaultdict(int)
         self._responses: dict[tuple[str, str, int], int] = defaultdict(int)
 
-    def record_response(self, method: str, path: str, status_code: int) -> None:
+    def record_response(self, method: str, route: str, status_code: int) -> None:
         with self._lock:
-            self._responses[(method, path, status_code)] += 1
+            self._responses[(method, route, status_code)] += 1
 
     def change_active(self, operation: str, delta: int) -> None:
         with self._lock:
@@ -83,7 +83,7 @@ class InferenceMetrics:
             "# TYPE loopin_embedding_batch_size_total counter",
             "# HELP loopin_reranker_candidate_count_total Number of candidates submitted for reranking.",
             "# TYPE loopin_reranker_candidate_count_total counter",
-            "# HELP loopin_http_responses_total HTTP responses by route and status.",
+            "# HELP loopin_http_responses_total HTTP responses by bounded route and status.",
             "# TYPE loopin_http_responses_total counter",
         ]
         with self._lock:
@@ -119,8 +119,8 @@ class InferenceMetrics:
             lines.append(f'loopin_embedding_batch_size_total{{operation="{operation}"}} {count}')
         for operation, count in sorted(candidate_counts.items()):
             lines.append(f'loopin_reranker_candidate_count_total{{operation="{operation}"}} {count}')
-        for (method, path, status), count in sorted(responses.items()):
+        for (method, route, status), count in sorted(responses.items()):
             lines.append(
-                f'loopin_http_responses_total{{method="{method}",path="{path}",status="{status}"}} {count}'
+                f'loopin_http_responses_total{{method="{method}",route="{route}",status="{status}"}} {count}'
             )
         return "\n".join(lines) + "\n"
