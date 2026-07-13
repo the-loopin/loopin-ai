@@ -42,9 +42,9 @@ def health() -> dict[str, str]:
 def ready(request: Request) -> dict | JSONResponse:
     registry = request.app.state.models
     body = {
-        "status": "ready" if registry.all_enabled_models_available() else "not_ready",
+        "status": registry.readiness_status(),
         **registry.readiness(),
     }
-    if body["status"] == "ready":
+    if body["status"] != "not_ready":
         return body
     return JSONResponse(status_code=503, content=body)
