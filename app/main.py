@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from app.api.embeddings import router as embeddings_router
 from app.api.rerank import router as rerank_router
@@ -37,6 +38,13 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/ready")
-def ready(request: Request) -> dict:
-    return {"status": "ready", **request.app.state.models.readiness()}
+@app.get("/ready", response_model=None)
+def ready(request: Request) -> dict | JSONResponse:
+    registry = request.app.state.models
+    body = {
+        "status": "ready" if registry.all_enabled_models_available() else "not_ready",
+        **registry.readiness(),
+    }
+    if body["status"] == "ready":
+        return body
+    return JSONResponse(status_code=503, content=body)
