@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app.inference import run_bounded_inference
+from app.runtime import InferenceQueueFull
 from app.services.embedding_service import EmbeddingService
 
 router = APIRouter()
@@ -41,7 +43,7 @@ def _service(request: Request) -> EmbeddingService:
 
 
 @router.post("/text", response_model=EmbeddingResponse)
-def embed_text(payload: TextEmbeddingRequest, request: Request) -> EmbeddingResponse:
+async def embed_text(payload: TextEmbeddingRequest, request: Request) -> EmbeddingResponse:
     registry = request.app.state.models
     if not registry.is_available("embeddings"):
         raise HTTPException(status_code=503, detail=registry.unavailable_reason("embeddings"))
@@ -50,7 +52,17 @@ def embed_text(payload: TextEmbeddingRequest, request: Request) -> EmbeddingResp
         extra={"input_type": payload.input_type, "items": 1},
     )
     try:
-        result = _service(request).embed([payload.text], input_type=payload.input_type)
+        result = await run_bounded_inference(
+            request.app,
+            "embeddings",
+            lambda: _service(request).embed([payload.text], input_type=payload.input_type),
+        )
+    except InferenceQueueFull:
+        raise HTTPException(
+            status_code=429,
+            detail="Embedding inference queue is full. Retry later.",
+            headers={"Retry-After": "1"},
+        )
     except Exception as exc:
         logger.exception("Embedding text request failed")
         raise HTTPException(status_code=500, detail="Embedding inference failed.") from exc
@@ -62,7 +74,7 @@ def embed_text(payload: TextEmbeddingRequest, request: Request) -> EmbeddingResp
 
 
 @router.post("/batch", response_model=BatchEmbeddingResponse)
-def embed_batch(payload: BatchEmbeddingRequest, request: Request) -> BatchEmbeddingResponse:
+async def embed_batch(payload: BatchEmbeddingRequest, request: Request) -> BatchEmbeddingResponse:
     registry = request.app.state.models
     if not registry.is_available("embeddings"):
         raise HTTPException(status_code=503, detail=registry.unavailable_reason("embeddings"))
@@ -71,7 +83,17 @@ def embed_batch(payload: BatchEmbeddingRequest, request: Request) -> BatchEmbedd
         extra={"input_type": payload.input_type, "items": len(payload.texts)},
     )
     try:
-        result = _service(request).embed(payload.texts, input_type=payload.input_type)
+        result = await run_bounded_inference(
+            request.app,
+            "embeddings",
+            lambda: _service(request).embed(payload.texts, input_type=payload.input_type),
+        )
+    except InferenceQueueFull:
+        raise HTTPException(
+            status_code=429,
+            detail="Embedding inference queue is full. Retry later.",
+            headers={"Retry-After": "1"},
+        )
     except Exception as exc:
         logger.exception("Embedding batch request failed")
         raise HTTPException(status_code=500, detail="Embedding inference failed.") from exc
