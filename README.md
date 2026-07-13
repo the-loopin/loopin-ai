@@ -209,6 +209,54 @@ Or:
 docker compose up --build
 ```
 
+## Tests and real-model benchmarks
+
+The default suite uses fake models and remains fast; it never asks Hugging Face for model
+artifacts:
+
+```bash
+pytest -q
+```
+
+The real embedding contracts are explicitly opt-in. They use the active embedding model in
+`config/models.yaml`, exercise both the service and authenticated HTTP endpoints, and may download
+the model into the standard Hugging Face cache on their first run:
+
+```bash
+RUN_REAL_MODEL_TESTS=true pytest -q -m real_model
+```
+
+The reranker remains separately opt-in and production configuration remains disabled by default:
+
+```bash
+RUN_REAL_MODEL_TESTS=true \
+RUN_RERANKER_TESTS=true \
+pytest -q -m "real_model or reranker"
+```
+
+Run the fixture-based vector benchmark with the configured embedding model:
+
+```bash
+python benchmarks/run_recommendation_benchmark.py
+```
+
+Run its optional reranker comparison:
+
+```bash
+RUN_RERANKER_TESTS=true \
+python benchmarks/run_recommendation_benchmark.py --include-reranker
+```
+
+The runner writes a timestamped JSON record under `benchmark-results/` and refreshes
+`docs/benchmarks/latest.md`. Outputs include only IDs and aggregates, never raw query, event, or
+candidate text. `Recall@10` is the fraction of every query's relevant candidates retrieved among
+the first ten; MRR is the mean reciprocal rank of the first relevant result. It records
+warm-up-excluded CPU latency and a background-sampled process RSS peak (MiB), model
+identity/revision details, and a thresholded reranker recommendation. Expect several hundred MiB
+of RAM for the embedding model and substantially more when the reranker is enabled; exact
+requirements and CPU latency depend on the host. Heavy tests are excluded from the default suite
+to prevent model downloads and routine developer/CI delays.
+
 ## Runtime flow
 
 ```text
