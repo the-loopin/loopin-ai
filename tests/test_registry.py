@@ -27,6 +27,18 @@ VALID_CONFIG = {
 }
 
 
+@pytest.fixture(autouse=True)
+def clear_model_environment(monkeypatch):
+    """Keep registry unit tests independent from deployment environment variables."""
+    for variable in (
+        "LOOPIN_EMBEDDINGS_ENABLED",
+        "LOOPIN_RERANKER_ENABLED",
+        "LOOPIN_EMBEDDINGS_ACTIVE",
+        "LOOPIN_RERANKER_ACTIVE",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+
+
 def test_registry_accepts_valid_config_without_loading_models():
     registry = ModelRegistry(VALID_CONFIG)
 
