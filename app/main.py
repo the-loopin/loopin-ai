@@ -78,6 +78,13 @@ app.include_router(embeddings_router, prefix="/v1/embeddings", tags=["embeddings
 app.include_router(rerank_router, prefix="/v1", tags=["rerank"])
 
 
+def _route_template(request: Request) -> str:
+    """Return a stable route template; never use caller-controlled path values."""
+    route = request.scope.get("route")
+    template = getattr(route, "path_format", None) or getattr(route, "path", None)
+    return template if isinstance(template, str) else "unmatched"
+
+
 @app.middleware("http")
 async def request_correlation(request: Request, call_next):
     correlation_id = inbound_request_id(request.headers.get("x-request-id"))
@@ -85,21 +92,32 @@ async def request_correlation(request: Request, call_next):
     started_at = perf_counter()
     try:
         response = await call_next(request)
-        if request.url.path != "/metrics":
+    except Exception as exc:
+        response = JSONResponse(status_code=500, content={"detail": "Internal server error."})
+        status = "failed"
+        error_type = exc.__class__.__name__
+    else:
+        status = "completed"
+        error_type = None
+    finally:
+        route = _route_template(request)
+        duration_seconds = perf_counter() - started_at
+        if route != "/metrics":
             request.app.state.inference_metrics.record_response(
-                request.method, request.url.path, response.status_code
+                request.method, route, response.status_code
             )
-        logger.info(
-            "HTTP request completed",
+        logger.log(
+            logging.ERROR if error_type else logging.INFO,
+            f"HTTP request {status}",
             extra={
                 "request_id": correlation_id,
                 "method": request.method,
-                "path": request.url.path,
+                "route": route,
                 "status_code": response.status_code,
-                "duration_seconds": perf_counter() - started_at,
+                "duration_seconds": duration_seconds,
+                "error_type": error_type,
             },
         )
-    finally:
         reset_request_id(token)
     response.headers["X-Request-ID"] = correlation_id
     return response
