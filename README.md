@@ -91,6 +91,28 @@ there should be no unbounded pending work or request timeouts. Capture the print
 queue/inference timing series as the load-test result for the target hardware, since model cache,
 CPU generation, and candidate sizes determine the exact throughput.
 
+### Recorded CPU load-test result (2026-07-13)
+
+The provided load runner was executed against the real `BAAI/bge-reranker-v2-m3` model in the
+Docker image (Python 3.12.13) on a Docker-limited 2-vCPU `x86_64` Linux container. The host was a
+13th Gen Intel Core i7-13700 (16 cores / 24 logical processors). The deployment used one Uvicorn
+worker, `RERANKER_MAX_CONCURRENCY=1`, `INFERENCE_QUEUE_CAPACITY=2`,
+`OMP_NUM_THREADS=2`, `MKL_NUM_THREADS=2`, and `TOKENIZERS_PARALLELISM=false`.
+
+`python tests/load_inference.py --operation reranker --requests 40 --concurrency 8` produced:
+
+| Measure | Result |
+| --- | ---: |
+| Successful responses | 3 (`200`) |
+| Controlled overload responses | 37 (`429`) |
+| End-to-end elapsed time | 0.954 s |
+| Reranker queue time | 1.172830 s total / 3 requests (0.390943 s average) |
+| Reranker inference time | 0.775260 s total / 3 requests (0.258420 s average) |
+| Reranker queue rejections | 37 |
+
+All 40 requests completed within the 0.954-second run; none waited indefinitely or timed out.
+The small queue intentionally rejected excess concurrent work, demonstrating the overload path.
+
 ## Endpoints
 
 ### `POST /v1/embeddings/text`
