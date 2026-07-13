@@ -4,7 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main as app_main
+from app.api import embeddings as embeddings_api
 from app.api import rerank as rerank_api
+from app.security import require_service_token
 from app.services.reranker_service import RerankResult
 
 
@@ -54,6 +56,8 @@ class FakeRegistry:
 
 @pytest.fixture(autouse=True)
 def fake_model_registry(monkeypatch):
+    monkeypatch.setenv("LOOPIN_SERVICE_TOKEN", "test-service-token")
+    app_main.app.dependency_overrides[require_service_token] = lambda: None
     monkeypatch.setattr(
         FakeRegistry,
         "model_states",
@@ -74,6 +78,8 @@ def fake_model_registry(monkeypatch):
         },
     )
     monkeypatch.setattr(app_main, "ModelRegistry", FakeRegistry)
+    yield
+    app_main.app.dependency_overrides.clear()
 
 
 def test_health_and_ready_with_mocked_registry():
@@ -258,13 +264,45 @@ def test_ready_returns_503_when_enabled_model_failed_to_load():
     assert response.json()["embeddings"]["loaded"] is False
 
 
-def test_ready_returns_degraded_when_enabled_reranker_failed_to_load():
+def test_ready_returns_503_when_enabled_reranker_failed_to_load():
     FakeRegistry.model_states["reranker"].update({"enabled": True, "loaded": False})
 
     with TestClient(app_main.app) as client:
         response = client.get("/ready")
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "degraded"
+    assert response.status_code == 503
+    assert response.json()["status"] == "not_ready"
     assert response.json()["embeddings"]["loaded"] is True
     assert response.json()["reranker"]["loaded"] is False
+
+
+def test_inference_requires_service_authentication(monkeypatch):
+    class FakeEmbeddingService:
+        def embed(self, texts, input_type):
+            return type(
+                "Result",
+                (),
+                {"model": "fake-embedding", "dimensions": 1, "embeddings": [[1.0]]},
+            )()
+
+    monkeypatch.setattr(
+        embeddings_api, "_service", lambda request: FakeEmbeddingService()
+    )
+    app_main.app.dependency_overrides.clear()
+    with TestClient(app_main.app) as client:
+        unauthorized = client.post("/v1/embeddings/text", json={"text": "music"})
+        authorized = client.post(
+            "/v1/embeddings/text",
+            json={"text": "music"},
+            headers={"Authorization": "Bearer test-service-token"},
+        )
+
+    assert unauthorized.status_code == 401
+    assert authorized.status_code == 200
+
+
+def test_request_id_is_returned_and_propagated():
+    with TestClient(app_main.app) as client:
+        response = client.get("/health", headers={"X-Request-ID": "caller-123"})
+
+    assert response.headers["x-request-id"] == "caller-123"
