@@ -171,11 +171,12 @@ class ModelRegistry:
             return f"{name.capitalize()} are disabled."
         return f"{name.capitalize()} are unavailable because the model failed to load."
 
-    def all_enabled_models_available(self) -> bool:
-        return all(
-            not self.enabled(name) or self.is_available(name)
-            for name in ("embeddings", "reranker")
-        )
+    def readiness_status(self) -> str:
+        if not self.is_available("embeddings"):
+            return "not_ready"
+        if self.enabled("reranker") and not self.is_available("reranker"):
+            return "degraded"
+        return "ready"
 
     @property
     def embedding_model(self):
