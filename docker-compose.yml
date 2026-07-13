@@ -5,6 +5,10 @@ services:
       - "8000:8000"
     environment:
       HF_HOME: /models/huggingface
+      LOOPIN_EMBEDDINGS_ENABLED: ${LOOPIN_EMBEDDINGS_ENABLED:-true}
+      LOOPIN_RERANKER_ENABLED: ${LOOPIN_RERANKER_ENABLED:-false}
+      LOOPIN_EMBEDDINGS_ACTIVE: ${LOOPIN_EMBEDDINGS_ACTIVE:-multilingual_e5_small}
+      LOOPIN_RERANKER_ACTIVE: ${LOOPIN_RERANKER_ACTIVE:-bge_reranker_v2_m3}
     volumes:
       - loopin-ai-model-cache:/models/huggingface
 

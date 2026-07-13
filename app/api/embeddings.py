@@ -42,6 +42,9 @@ def _service(request: Request) -> EmbeddingService:
 
 @router.post("/text", response_model=EmbeddingResponse)
 def embed_text(payload: TextEmbeddingRequest, request: Request) -> EmbeddingResponse:
+    registry = request.app.state.models
+    if not registry.is_available("embeddings"):
+        raise HTTPException(status_code=503, detail=registry.unavailable_reason("embeddings"))
     logger.info(
         "Embedding text request",
         extra={"input_type": payload.input_type, "items": 1},
@@ -60,6 +63,9 @@ def embed_text(payload: TextEmbeddingRequest, request: Request) -> EmbeddingResp
 
 @router.post("/batch", response_model=BatchEmbeddingResponse)
 def embed_batch(payload: BatchEmbeddingRequest, request: Request) -> BatchEmbeddingResponse:
+    registry = request.app.state.models
+    if not registry.is_available("embeddings"):
+        raise HTTPException(status_code=503, detail=registry.unavailable_reason("embeddings"))
     logger.info(
         "Embedding batch request",
         extra={"input_type": payload.input_type, "items": len(payload.texts)},

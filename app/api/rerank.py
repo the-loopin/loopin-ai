@@ -45,6 +45,9 @@ def _service(request: Request) -> RerankerService:
 
 @router.post("/rerank", response_model=RerankResponse)
 def rerank(payload: RerankRequest, request: Request) -> RerankResponse:
+    registry = request.app.state.models
+    if not registry.is_available("reranker"):
+        raise HTTPException(status_code=503, detail=registry.unavailable_reason("reranker"))
     logger.info(
         "Rerank request",
         extra={"candidates": len(payload.candidates), "top_k": payload.top_k},
