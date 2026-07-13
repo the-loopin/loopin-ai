@@ -3,6 +3,8 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app.inference import run_bounded_inference
+from app.runtime import InferenceQueueFull
 from app.services.reranker_service import RerankerService
 
 router = APIRouter()
@@ -44,7 +46,7 @@ def _service(request: Request) -> RerankerService:
 
 
 @router.post("/rerank", response_model=RerankResponse)
-def rerank(payload: RerankRequest, request: Request) -> RerankResponse:
+async def rerank(payload: RerankRequest, request: Request) -> RerankResponse:
     registry = request.app.state.models
     if not registry.is_available("reranker"):
         raise HTTPException(status_code=503, detail=registry.unavailable_reason("reranker"))
@@ -53,10 +55,20 @@ def rerank(payload: RerankRequest, request: Request) -> RerankResponse:
         extra={"candidates": len(payload.candidates), "top_k": payload.top_k},
     )
     try:
-        result = _service(request).rerank(
-            query=payload.query,
-            candidates=[candidate.model_dump() for candidate in payload.candidates],
-            top_k=payload.top_k,
+        result = await run_bounded_inference(
+            request.app,
+            "reranker",
+            lambda: _service(request).rerank(
+                query=payload.query,
+                candidates=[candidate.model_dump() for candidate in payload.candidates],
+                top_k=payload.top_k,
+            ),
+        )
+    except InferenceQueueFull:
+        raise HTTPException(
+            status_code=429,
+            detail="Reranker inference queue is full. Retry later.",
+            headers={"Retry-After": "1"},
         )
     except Exception as exc:
         logger.exception("Rerank request failed")
