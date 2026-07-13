@@ -47,6 +47,50 @@ LOOPIN_RERANKER_ACTIVE=bge_reranker_v2_m3
 When reranking is disabled or its model cannot load, `POST /v1/rerank` returns `503 Service
 Unavailable`. An unavailable embedding model similarly returns 503 from embedding endpoints.
 
+## CPU inference runtime
+
+Model inference is deliberately bounded independently for embeddings and reranking. A request
+that cannot enter its operation's bounded queue returns `429 Too Many Requests` with
+`Retry-After: 1`, rather than waiting indefinitely. Each service process has its own queues, so
+run exactly one Uvicorn worker for a CPU deployment: more workers each load separate copies of
+the configured models and multiply CPU pressure and memory use.
+
+Recommended settings for a 2-vCPU server (these are the Docker Compose defaults):
+
+```bash
+# Uvicorn workers: 1 (the Docker image enforces this)
+EMBEDDING_MAX_CONCURRENCY=2
+RERANKER_MAX_CONCURRENCY=1
+INFERENCE_QUEUE_CAPACITY=20
+OMP_NUM_THREADS=2
+MKL_NUM_THREADS=2
+TOKENIZERS_PARALLELISM=false
+```
+
+`INFERENCE_QUEUE_CAPACITY` applies independently to each inference type and excludes requests
+already running. `EMBEDDING_MAX_CONCURRENCY` and `RERANKER_MAX_CONCURRENCY` control active model
+calls, with the reranker defaulting to one. CPU thread environment values are applied before the
+model libraries load.
+
+`GET /metrics` exports Prometheus-compatible counters and summaries. The
+`loopin_inference_queue_seconds_*` series measures admission wait time, while
+`loopin_inference_duration_seconds_*` measures only model execution. Rejections are exposed by
+`loopin_inference_rejected_total`.
+
+### CPU load test
+
+Start a local deployment with reranking enabled when testing both operations, then run:
+
+```bash
+python tests/load_inference.py --operation both --requests 40 --concurrency 8
+```
+
+The script prints HTTP status counts plus `/metrics`. With the 2-vCPU defaults, the expected
+result under sustained overload is a mix of successful responses and explicit `429` responses;
+there should be no unbounded pending work or request timeouts. Capture the printed JSON and the
+queue/inference timing series as the load-test result for the target hardware, since model cache,
+CPU generation, and candidate sizes determine the exact throughput.
+
 ## Endpoints
 
 ### `POST /v1/embeddings/text`
