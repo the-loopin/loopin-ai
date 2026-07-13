@@ -45,13 +45,15 @@ class FakeRegistry:
         return f"{name} unavailable"
 
     def readiness_status(self):
-        if not self.is_available("embeddings"):
-            return "not_ready"
-        if self.model_states["reranker"]["enabled"] and not self.is_available(
-            "reranker"
-        ):
-            return "degraded"
-        return "ready"
+        return (
+            "ready"
+            if all(
+                self.is_available(name)
+                for name, state in self.model_states.items()
+                if state["enabled"]
+            )
+            else "not_ready"
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -306,3 +308,39 @@ def test_request_id_is_returned_and_propagated():
         response = client.get("/health", headers={"X-Request-ID": "caller-123"})
 
     assert response.headers["x-request-id"] == "caller-123"
+
+
+def test_unmatched_requests_use_a_bounded_metrics_route_label():
+    with TestClient(app_main.app) as client:
+        response = client.get("/unrecognized/client-supplied-value")
+        metrics = client.get("/metrics").text
+
+    assert response.status_code == 404
+    assert 'loopin_http_responses_total{method="GET",route="unmatched",status="404"} 1' in metrics
+    assert "client-supplied-value" not in metrics
+
+
+def test_unhandled_500_has_request_id_metric_and_error_log(caplog):
+    def fail_unhandled_request():
+        raise RuntimeError("unexpected failure")
+
+    app_main.app.add_api_route("/test-unhandled-500", fail_unhandled_request)
+    route = app_main.app.router.routes[-1]
+    try:
+        with TestClient(app_main.app, raise_server_exceptions=False) as client:
+            response = client.get(
+                "/test-unhandled-500", headers={"X-Request-ID": "failure-123"}
+            )
+            metrics = client.get("/metrics").text
+    finally:
+        app_main.app.router.routes.remove(route)
+
+    assert response.status_code == 500
+    assert response.headers["x-request-id"] == "failure-123"
+    assert (
+        'loopin_http_responses_total{method="GET",route="/test-unhandled-500",status="500"} 1'
+        in metrics
+    )
+    error = next(record for record in caplog.records if record.message == "HTTP request failed")
+    assert error.request_id == "failure-123"
+    assert error.error_type == "RuntimeError"
