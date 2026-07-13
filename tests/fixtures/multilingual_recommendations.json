@@ -1,6 +1,23 @@
 {
   "dataset_version": "1.0",
-  "description": "Original, license-safe recommendation examples. relevant_candidate_ids are the candidates that satisfy the query; all other candidates are negatives.",
+  "description": "Original, license-safe recommendation examples. relevant_candidate_ids are local labels. shared_corpus_relevance_labels are authoritative when ranking all candidates together and include valid cross-language matches.",
+  "shared_corpus_relevance_labels": {
+    "az_music_01": ["event_az_jazz", "event_tr_jazz", "event_en_jazz"],
+    "tr_music_01": ["event_az_jazz", "event_tr_jazz", "event_en_jazz"],
+    "en_music_01": ["event_az_jazz", "event_tr_jazz", "event_en_jazz"],
+    "az_tech_02": ["event_az_ai", "event_tr_ai", "event_en_ai"],
+    "tr_tech_02": ["event_az_ai", "event_tr_ai", "event_en_ai"],
+    "en_tech_02": ["event_az_ai", "event_tr_ai", "event_en_ai"],
+    "az_food_03": ["event_az_cooking", "event_tr_cooking", "event_en_cooking"],
+    "tr_food_03": ["event_az_cooking", "event_tr_cooking", "event_en_cooking"],
+    "en_food_03": ["event_az_cooking", "event_tr_cooking", "event_en_cooking"],
+    "az_family_04": ["event_az_kids_science", "event_tr_kids_science", "event_en_kids_science"],
+    "tr_family_04": ["event_az_kids_science", "event_tr_kids_science", "event_en_kids_science"],
+    "en_family_04": ["event_az_kids_science", "event_tr_kids_science", "event_en_kids_science"],
+    "az_outdoor_05": ["event_az_hike", "event_az_hike_photo", "event_tr_hike", "event_tr_hike_photo", "event_en_hike", "event_en_hike_photo"],
+    "tr_outdoor_05": ["event_az_hike", "event_az_hike_photo", "event_tr_hike", "event_tr_hike_photo", "event_en_hike", "event_en_hike_photo"],
+    "en_outdoor_05": ["event_az_hike", "event_az_hike_photo", "event_tr_hike", "event_tr_hike_photo", "event_en_hike", "event_en_hike_photo"]
+  },
   "examples": [
     {"language":"az","query_id":"az_music_01","query":"Bakıda canlı caz tədbiri","relevant_candidate_ids":["event_az_jazz"],"candidates":[{"id":"event_az_jazz","text":"Bakıda açıq havada canlı caz gecəsi"},{"id":"event_az_music_talk","text":"Musiqi tarixindən açıq mühazirə"},{"id":"event_az_yoga","text":"Səhər parkda yoqa dərsi"},{"id":"event_az_code","text":"Python proqramlaşdırma görüşü"}]},
     {"language":"az","query_id":"az_tech_02","query":"Süni intellekt və startap görüşü","relevant_candidate_ids":["event_az_ai"],"candidates":[{"id":"event_az_ai","text":"Bakıda süni intellekt startapları üçün şəbəkələşmə axşamı"},{"id":"event_az_business","text":"Kiçik biznes üçün vergi seminarı"},{"id":"event_az_art","text":"Müasir rəsm sərgisinə tur"},{"id":"event_az_run","text":"Dənizkənarı səhər qaçışı"}]},
