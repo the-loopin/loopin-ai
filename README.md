@@ -47,6 +47,18 @@ LOOPIN_RERANKER_ACTIVE=bge_reranker_v2_m3
 When reranking is disabled or its model cannot load, `POST /v1/rerank` returns `503 Service
 Unavailable`. An unavailable embedding model similarly returns 503 from embedding endpoints.
 
+### Docker model packaging
+
+The Docker build reads `config/models.yaml` and downloads models whose
+`enabled` value is `true`. These models are stored inside the image under
+`HF_HOME`.
+
+Runtime containers use Hugging Face offline mode and do not download model
+artifacts during startup.
+
+Enabling a previously disabled model requires building and deploying a new
+Docker image that contains that model.
+
 ## CPU inference runtime
 
 Model inference is deliberately bounded independently for embeddings and reranking. A request
