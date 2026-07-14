@@ -1,26 +1,24 @@
 services:
   loopin-ai:
     build: .
+
     expose:
       - "8000"
+
     environment:
-      # Store in the deployment secret manager or local .env; never commit a value.
       LOOPIN_SERVICE_TOKEN: ${LOOPIN_SERVICE_TOKEN:?LOOPIN_SERVICE_TOKEN must be set}
       LOOPIN_ENV: ${LOOPIN_ENV:-production}
-      HF_HOME: /models/huggingface
+
       LOOPIN_EMBEDDINGS_ENABLED: ${LOOPIN_EMBEDDINGS_ENABLED:-true}
       LOOPIN_RERANKER_ENABLED: ${LOOPIN_RERANKER_ENABLED:-false}
+
       LOOPIN_EMBEDDINGS_ACTIVE: ${LOOPIN_EMBEDDINGS_ACTIVE:-multilingual_e5_small}
       LOOPIN_RERANKER_ACTIVE: ${LOOPIN_RERANKER_ACTIVE:-bge_reranker_v2_m3}
+
       EMBEDDING_MAX_CONCURRENCY: ${EMBEDDING_MAX_CONCURRENCY:-2}
       RERANKER_MAX_CONCURRENCY: ${RERANKER_MAX_CONCURRENCY:-1}
       INFERENCE_QUEUE_CAPACITY: ${INFERENCE_QUEUE_CAPACITY:-20}
+
       OMP_NUM_THREADS: ${OMP_NUM_THREADS:-2}
       MKL_NUM_THREADS: ${MKL_NUM_THREADS:-2}
-      TOKENIZERS_PARALLELISM: ${TOKENIZERS_PARALLELISM:-false}
-    # Attach this service only to a private network / reverse proxy; do not publish 8000 publicly.
-    volumes:
-      - loopin-ai-model-cache:/models/huggingface
-
-volumes:
-  loopin-ai-model-cache:
+      TOKENIZERS_PARALLELISM: "false"
